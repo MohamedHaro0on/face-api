@@ -10,116 +10,155 @@ function loadFaceAPI() {
   });
 }
 
-// Main initialization function that wraps all the code
+// Main initialization function
 async function initializeAR() {
   try {
-    // Wait for face-api.js to load
     await loadFaceAPI();
 
-    // First, create and add the button
+    // Create modal elements
+    const modal = document.createElement("div");
+    modal.className = "ar-modal";
+    modal.style.cssText = `
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.8);
+      z-index: 1000;
+    `;
+
+    const modalContent = document.createElement("div");
+    modalContent.className = "modal-content";
+    modalContent.style.cssText = `
+      position: relative;
+      width: 95%;
+      max-width: 1280px;
+      height: 90%;
+      margin: 2% auto;
+      background-color: #fff;
+      border-radius: 10px;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      overflow: hidden;
+    `;
+
+    // Create start button
     const detailsSlider = document.querySelector('[id^="details-slider"]');
     const startARButton = document.createElement("button");
     startARButton.id = "startAR";
-    startARButton.textContent = "Start AR";
+    startARButton.textContent = "جربها عليك";
     startARButton.style.cssText = `
-            padding: 10px 20px;
-            font-size: 16px;
-            background-color: #007bff;
-            color: white;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            transition: background-color 0.3s;
-            margin: 10px;
-        `;
+      padding: 10px 20px;
+      font-size: 16px;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      margin: 10px;
+    `;
     detailsSlider.appendChild(startARButton);
 
     // Create stop button
     const stopARButton = document.createElement("button");
     stopARButton.id = "stopAR";
-    stopARButton.textContent = "Stop AR";
+    stopARButton.textContent = "اغلق";
     stopARButton.style.cssText = `
-        padding: 10px 20px;
-        font-size: 16px;
-        background-color: #dc3545;
-        color: white;
-        border: none;
-        border-radius: 5px;
-        cursor: pointer;
-        transition: background-color 0.3s;
-        margin: 10px;
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        z-index: 1000;
-        display: none;
+      padding: 10px 20px;
+      font-size: 16px;
+      background-color: #dc3545;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      margin: 10px;
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      z-index: 1001;
     `;
-    document.body.appendChild(stopARButton);
 
     // Create container and video elements
     const container = document.createElement("div");
     container.className = "container";
     container.style.cssText = `
-            position: relative;
-            min-height: 100vh;
-            display: none;
-            justify-content: center;
-            align-items: center;
-        `;
+      position: relative;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    `;
 
     const video = document.createElement("video");
     video.id = "video";
     video.autoplay = true;
     video.muted = true;
-    video.style.cssText = "position: absolute;";
+    video.playsInline = true;
+    video.style.cssText = `
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    `;
 
     const canvas = document.createElement("canvas");
     canvas.id = "overlay";
-    canvas.style.cssText = "position: absolute; z-index: 1;";
+    canvas.style.cssText = `
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+    `;
 
     const loadingElement = document.createElement("div");
     loadingElement.id = "loading";
-    loadingElement.className = "loading";
     loadingElement.textContent = "Loading models...";
     loadingElement.style.cssText = `
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            font-size: 24px;
-            display: none;
-        `;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 24px;
+      display: none;
+      color: #007bff;
+    `;
 
-    // Add elements to container
+    // Add elements to DOM
     container.appendChild(video);
     container.appendChild(canvas);
     container.appendChild(loadingElement);
+    modalContent.appendChild(stopARButton);
+    modalContent.appendChild(container);
+    modal.appendChild(modalContent);
+    document.body.appendChild(modal);
 
-    // Add container to body
-    document.body.appendChild(container);
-
-    // Get canvas context
+    // Initialize variables
     const ctx = canvas.getContext("2d");
-
-    // Constants
     const MODEL_SOURCE = "https://unpkg.com/@vladmandic/face-api@1.7.1/model/";
     let isInitialized = false;
     let animationFrameId = null;
+    let lastDrawnFrame = 0;
+    const FRAME_RATE = 30; // Limit to 30 FPS
+    const frameInterval = 1000 / FRAME_RATE;
 
     // Pre-load glasses image
     const glassesImg = new Image();
-    glassesImg.src = "https://cdn-icons-png.flaticon.com/128/7826/7826914.png"; // Replace with your glasses image path
-
-    // Promise to ensure glasses image is loaded
-    const glassesLoaded = new Promise((resolve) => {
+    glassesImg.src = "https://cdn-icons-png.flaticon.com/128/7826/7826914.png";
+    await new Promise((resolve) => {
       glassesImg.onload = resolve;
     });
 
-    // Setup camera stream
+    // Setup camera
     async function setupCamera() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: {
+            facingMode: "user",
             width: { ideal: 1280 },
             height: { ideal: 720 },
           },
@@ -138,33 +177,28 @@ async function initializeAR() {
       }
     }
 
-    // Load face-api models
+    // Load models
     async function loadModels() {
+      loadingElement.style.display = "block";
       try {
-        loadingElement.style.display = "block";
         await Promise.all([
           faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_SOURCE),
           faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_SOURCE),
         ]);
+      } finally {
         loadingElement.style.display = "none";
-      } catch (error) {
-        console.error("Model loading failed:", error);
-        loadingElement.textContent = "Error loading models";
-        throw error;
       }
     }
 
-    // Draw glasses on the canvas
+    // Draw glasses
     function drawGlasses(leftEye, rightEye) {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
       const eyeDistance = Math.abs(leftEye[0].x - rightEye[3].x);
       const eyeCenterX = (leftEye[0].x + rightEye[3].x) / 2;
       const eyeCenterY = (leftEye[0].y + rightEye[3].y) / 2;
-
       const glassesWidth = eyeDistance * 2.5;
       const glassesHeight = glassesWidth * 0.4;
 
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(
         glassesImg,
         eyeCenterX - glassesWidth / 2,
@@ -174,9 +208,15 @@ async function initializeAR() {
       );
     }
 
-    // Main detection loop
+    // Detect face
     async function detectFace() {
       if (!isInitialized) return;
+
+      const now = performance.now();
+      if (now - lastDrawnFrame < frameInterval) {
+        animationFrameId = requestAnimationFrame(detectFace);
+        return;
+      }
 
       try {
         const detections = await faceapi
@@ -185,10 +225,10 @@ async function initializeAR() {
 
         if (detections) {
           const landmarks = detections.landmarks;
-          const leftEye = landmarks.getLeftEye();
-          const rightEye = landmarks.getRightEye();
-          drawGlasses(leftEye, rightEye);
+          drawGlasses(landmarks.getLeftEye(), landmarks.getRightEye());
         }
+
+        lastDrawnFrame = now;
       } catch (error) {
         console.error("Face detection error:", error);
       }
@@ -196,13 +236,10 @@ async function initializeAR() {
       animationFrameId = requestAnimationFrame(detectFace);
     }
 
-    // Initialize the application
+    // Initialize
     async function initialize() {
       try {
-        await loadModels();
-        await setupCamera();
-        await glassesLoaded;
-
+        await Promise.all([loadModels(), setupCamera()]);
         isInitialized = true;
         detectFace();
       } catch (error) {
@@ -211,7 +248,7 @@ async function initializeAR() {
       }
     }
 
-    // Cleanup function
+    // Cleanup
     function cleanup() {
       isInitialized = false;
       if (animationFrameId) {
@@ -220,39 +257,27 @@ async function initializeAR() {
       if (video.srcObject) {
         video.srcObject.getTracks().forEach((track) => track.stop());
       }
-      // Reset UI
-      container.style.display = "none";
+      modal.style.display = "none";
       startARButton.style.display = "block";
-      stopARButton.style.display = "none";
-      // Clear canvas
       ctx.clearRect(0, 0, canvas.width, canvas.height);
     }
 
-    // Add button click event listener
+    // Event listeners
     startARButton.addEventListener("click", async () => {
-      container.style.display = "flex";
+      modal.style.display = "block";
       startARButton.style.display = "none";
-      stopARButton.style.display = "block";
       await initialize();
     });
 
-    // Add stop button click event listener
-    stopARButton.addEventListener("click", () => {
-      cleanup();
+    stopARButton.addEventListener("click", cleanup);
+    modal.addEventListener("click", (e) => {
+      if (e.target === modal) cleanup();
     });
-
-    // Add cleanup event listener
     window.addEventListener("beforeunload", cleanup);
-
-    // Error handling for video
-    video.addEventListener("error", (error) => {
-      console.error("Video error:", error);
-      loadingElement.textContent = "Error with video stream";
-    });
   } catch (error) {
     console.error("Failed to initialize AR:", error);
   }
 }
 
-// Start the initialization
+// Start initialization
 initializeAR();
