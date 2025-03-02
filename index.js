@@ -1,4 +1,10 @@
 // Create and load face-api.js script
+// Function to check if URL contains sunglasses or eyeglasses
+function shouldShowARButton() {
+  const currentUrl = window.location.href.toLowerCase();
+  return currentUrl.includes("sunglasses") || currentUrl.includes("eyeglasses");
+}
+
 function loadFaceAPI() {
   return new Promise((resolve, reject) => {
     const script = document.createElement("script");
@@ -10,9 +16,59 @@ function loadFaceAPI() {
   });
 }
 
+// Function to wait for Swiper initialization
+function waitForSwiper() {
+  return new Promise((resolve, reject) => {
+    let attempts = 0;
+    const maxAttempts = 20;
+    const interval = 500;
+
+    const checkSwiper = setInterval(() => {
+      const swiperContainer = document.querySelector(
+        ".swiper.s-slider-thumbs-container.swiper-initialized.swiper-horizontal.swiper-pointer-events.swiper-rtl.swiper-watch-progress.swiper-backface-hidden.swiper-thumbs"
+      );
+
+      if (swiperContainer) {
+        const swiperWrapper = swiperContainer.querySelector(
+          '[id^="swiper-wrapper-"]'
+        );
+        if (swiperWrapper) {
+          clearInterval(checkSwiper);
+          setTimeout(() => {
+            const images = swiperWrapper.querySelectorAll("div img");
+            if (images.length > 0) {
+              console.log("Swiper and images found successfully");
+              resolve(Array.from(images));
+            } else {
+              reject(new Error("Swiper found but no images"));
+            }
+          }, 100);
+        }
+      } else {
+        attempts++;
+        console.log(`Waiting for Swiper... Attempt ${attempts}`);
+        if (attempts >= maxAttempts) {
+          clearInterval(checkSwiper);
+          reject(new Error("Timeout waiting for Swiper"));
+        }
+      }
+    }, interval);
+  });
+}
+
 // Main initialization function
 async function initializeAR() {
   try {
+    // Check if we should show AR button based on URL
+    if (!shouldShowARButton()) {
+      console.log(
+        "AR button not shown - URL doesn't contain sunglasses or eyeglasses"
+      );
+      return; // Exit if URL doesn't contain required keywords
+    }
+
+    // Wait for Swiper first
+    const swiperImages = await waitForSwiper();
     await loadFaceAPI();
 
     // Create modal elements
@@ -45,6 +101,58 @@ async function initializeAR() {
       align-items: center;
       overflow: hidden;
     `;
+
+    // Create sunglasses button container
+    const sunglassesButtonContainer = document.createElement("div");
+    sunglassesButtonContainer.style.cssText = `
+      position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 10px;
+      padding: 10px;
+      background-color: rgba(255, 255, 255, 0.8);
+      border-radius: 10px;
+      z-index: 1001;
+    `;
+
+    // Create buttons for each pair of sunglasses
+    swiperImages.forEach((img, index) => {
+      const button = document.createElement("button");
+      button.style.cssText = `
+        padding: 5px;
+        border: 2px solid #ccc;
+        border-radius: 5px;
+        cursor: pointer;
+        background-color: white;
+        transition: all 0.3s ease;
+      `;
+
+      const previewImg = document.createElement("img");
+      previewImg.src = img.src;
+      previewImg.style.cssText = `
+        width: 50px;
+        height: 30px;
+        object-fit: contain;
+      `;
+
+      button.appendChild(previewImg);
+      button.addEventListener("click", () => {
+        // Update selected button style
+        sunglassesButtonContainer.querySelectorAll("button").forEach((btn) => {
+          btn.style.borderColor = "#ccc";
+        });
+        button.style.borderColor = "#007bff";
+
+        // Update glasses image
+        glassesImg.src = img.src;
+      });
+
+      sunglassesButtonContainer.appendChild(button);
+    });
+
+    modalContent.appendChild(sunglassesButtonContainer);
 
     // Create start button
     const detailsSlider = document.querySelector('[id^="details-slider"]');
@@ -143,12 +251,12 @@ async function initializeAR() {
     let isInitialized = false;
     let animationFrameId = null;
     let lastDrawnFrame = 0;
-    const FRAME_RATE = 30; // Limit to 30 FPS
+    const FRAME_RATE = 30;
     const frameInterval = 1000 / FRAME_RATE;
 
     // Pre-load glasses image
     const glassesImg = new Image();
-    glassesImg.src = "https://cdn-icons-png.flaticon.com/128/7826/7826914.png";
+    glassesImg.src = swiperImages[0].src;
     await new Promise((resolve) => {
       glassesImg.onload = resolve;
     });
@@ -260,6 +368,10 @@ async function initializeAR() {
       modal.style.display = "none";
       startARButton.style.display = "block";
       ctx.clearRect(0, 0, canvas.width, canvas.height);
+      // Reset selected button styles
+      sunglassesButtonContainer.querySelectorAll("button").forEach((btn) => {
+        btn.style.borderColor = "#ccc";
+      });
     }
 
     // Event listeners
@@ -280,4 +392,6 @@ async function initializeAR() {
 }
 
 // Start initialization
-initializeAR();
+window.addEventListener("load", () => {
+  initializeAR();
+});
